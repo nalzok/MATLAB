@@ -3,26 +3,26 @@ tolerance = 0.001;
 color = 'b';
 style = '--';
 width = 0.5;
- 
+
 circleCount = 1;
 buttonDown = 0;
-x1 = [0 0]; y1 = [0 0]; x2 = [0 0]; y2 = [0 0];
- 
 figure('WindowButtonDownFcn', @getBeginPoint, ...
     'WindowButtonMotionFcn', @updateCircle, ...
     'WindowButtonUpFcn', @getEndPoint);
 ah = axes('SortMethod', 'childorder');
+[circleEdge1, circleEdge2] = deal(zeros(2, 2));
 circles = [rectangle('Position', [0 0 0 0], 'Curvature', 1), ...
     rectangle('Position', [0 0 0 0], 'Curvature', 1)];
 hold on;
-axis equal;
 grid on;
+grid minor;
+axis equal;
 axis ([0 1 0 1]);
- 
+
     function getBeginPoint(src, ~)
         if strcmp(get(src, 'SelectionType'), 'normal')
             buttonDown = 1;
-            [x1(circleCount), y1(circleCount)] = get_point(ah);
+            circleEdge1(circleCount, :) = get_point(ah);
             if circleCount == 1
                 assets = findobj('Type', 'Line', ...
                     '-or', 'Type', 'Transform', ...
@@ -32,123 +32,122 @@ axis ([0 1 0 1]);
             end
         end
     end
- 
+
     function updateCircle(~, ~)
         if buttonDown
-            [x, y] = get_point(ah);
-            x0 = x1(circleCount);
-            y0 = y1(circleCount);
-            xx = (x + x0) / 2;
-            yy = (y + y0) / 2;
-            r = norm([x-x0, y-y0]) / 2;
-            set(circles(circleCount), 'Position', [xx-r yy-r 2*r 2*r]);
+            pt1 = circleEdge1(circleCount, :);
+            pt2 = get_point(ah);
+            center = (pt1 + pt2) / 2;
+            d = norm(pt1 - pt2);
+            set(circles(circleCount), ...
+                'Position', [center-d/2, d, d]);
             axis ([0 1 0 1]);
         end
     end
- 
+
     function getEndPoint(~, ~)
         buttonDown = 0;
-        [x2(circleCount), y2(circleCount)] = get_point(ah);
+        circleEdge2(circleCount, :) = get_point(ah);
         circleCount = circleCount + 1;
         if circleCount > 2
-            rawData = [x1' y1' x2' y2'];
-            drawCommonTangent(rawData);
+            drawCommonTangent([circleEdge1 circleEdge2]);
             axis ([0 1 0 1]);
             circleCount = 1;
         end
     end
- 
-    function [x, y] = get_point(ah)
+
+    function p = get_point(ah)
         cp = get(ah, 'CurrentPoint');
-        x = cp(1,1);
-        y = cp(1,2);
+        p = cp(1, 1:2);
     end
- 
+
     function drawCommonTangent(rawCircles)
-        r1 = norm(rawCircles(1, 3:4) - rawCircles(1, 1:2)) / 2;
-        r2 = norm(rawCircles(2, 3:4) - rawCircles(2, 1:2)) / 2;
-        if (r1 <= tolerance || r2 <= tolerance)
+        diamaters = rawCircles(:, 3:4) - rawCircles(:, 1:2);
+        r = hypot(diamaters(:, 1), diamaters(:, 2)) / 2;
+        if (r(1) <= tolerance || r(2) <= tolerance)
             set(circles, 'Position', [0 0 0 0]);
             return;
         end
-        % make r1 >= r2
-        if (r1 < r2)
+        % make r(1) >= r(2)
+        if (r(1) < r(2))
             rawCircles = flip(rawCircles);
-            [r2, r1] = deal(r1, r2);
+            r = flip(r);
         end
         
-        xx1 = (rawCircles(1,1) + rawCircles(1,3)) / 2;
-        yy1 = (rawCircles(1,2) + rawCircles(1,4)) / 2;
-        xx2 = (rawCircles(2,1) + rawCircles(2,3)) / 2;
-        yy2 = (rawCircles(2,2) + rawCircles(2,4)) / 2;
-        vX = [xx1 xx2];
-        vY = [yy1 yy2];
-        d = norm([xx2-xx1, yy2-yy1]);
-        unitTangent = [xx2-xx1, yy2-yy1] / d;
-        unitNormal = [yy1-yy2, xx2-xx1] / d;
+        centers = zeros(2, 2);
+        centers(:, 1) = (rawCircles(:, 1) + rawCircles(:, 3)) / 2;  % x
+        centers(:, 2) = (rawCircles(:, 2) + rawCircles(:, 4)) / 2;  % y
         
-        set(circles(1), 'Position', [xx1-r1 yy1-r1 2*r1 2*r1]);
-        set(circles(2), 'Position', [xx2-r2 yy2-r2 2*r2 2*r2]);
+        ctrCtr = centers(2, :) - centers(1, :);
+        centerDist = norm(ctrCtr);
+        unitTangent = ctrCtr / centerDist;
+        unitNormal = [unitTangent(2) -unitTangent(1)];
         
-        if (abs(r1-r2) <= tolerance ...
-                && abs(xx1-xx2) <= tolerance ...
-                && abs(yy1-yy2) <= tolerance)
-            % I didn't have much education. Don't try to fool me.
-            text(xx1, yy1, 'THIS MAKES NO SENSE!', ...
-                'HorizontalAlignment', 'center');
-            
-        else
-            % Internal Common Tangents
-            if (d + tolerance >= r1 + r2)
-                if (d - tolerance <= r1 + r2)
-                    center = deal([xx1 yy1] + unitTangent * r1);
-                    theta = pi/2;
-                    makeTransformedLine(vX, vY, center, theta, 3 * r1);
-                else
-                    D = min(realmax, d * r1/(r1+r2));
-                    center = deal([xx1 yy1] + unitTangent * D);
-                    theta = asin((r1+r2)/d);
-                    makeTransformedLine(vX, vY, center, theta, 3 * D);
-                    makeTransformedLine(vX, vY, center, -theta, 3 * D);
-                end
+        set(circles(1), 'Position', [centers(1, :)-r(1) 2*r(1) 2*r(1)]);
+        set(circles(2), 'Position', [centers(2, :)-r(2) 2*r(2) 2*r(2)]);
+        
+        if (norm(centers(1, :)-centers(2, :)) <= tolerance ...
+                && r(1)-r(2) <= tolerance)
+            text(0.5, 0.5, ...
+                {'I didn''t have much education.', ...
+                'Don''t try to fool me.'}, ...
+                'HorizontalAlignment', 'center', ...
+                'FontSize', 16);
+            return;
+        end
+        
+        % External Common Tangents
+        if (centerDist + tolerance >= r(1) - r(2))
+            if (r(1) - r(2) <= tolerance)
+                farCenters = centers + [-unitTangent; unitTangent] * 0.5;
+                shifter = unitNormal * r(1);
+                line1 = farCenters + repmat(shifter, 2, 1);
+                line(line1(:, 1), line1(:, 2), ...
+                    'Color', color, ...
+                    'LineStyle', style, ...
+                    'LineWidth', width);
+                line2 = farCenters - repmat(shifter, 2, 1);
+                line(line2(:, 1), line2(:, 2), ...
+                    'Color', color, ...
+                    'LineStyle', style, ...
+                    'LineWidth', width);
+            elseif (centerDist - tolerance <= r(1) - r(2))
+                center = centers(1, :) + unitTangent * r(1);
+                theta = pi/2;
+                makeTransformedLine(ctrCtr, center, theta, 3 * r(1));
+            else
+                D = min(realmax, centerDist * r(1)/(r(1)-r(2)));
+                center = centers(1, :) + unitTangent * D;
+                theta = asin((r(1)-r(2))/centerDist);
+                makeTransformedLine(ctrCtr, center, theta, 3 * D);
+                makeTransformedLine(ctrCtr, center, -theta, 3 * D);
             end
-            
-            % External Common Tangents
-            if (d + tolerance >= r1 - r2)
-                if (r1 - r2 <= tolerance)
-                    [X1, Y1] = deal([xx1 yy1] - unitTangent * d);
-                    [X2, Y2] = deal([xx2 yy2] + unitTangent * d);
-                    delta = unitNormal * r1;
-                    line([X1, X2] + delta(1), [Y1, Y2] + delta(2), ...
-                        'Color', color, ...
-                        'LineStyle', style, ...
-                        'LineWidth', width);
-                    line([X1, X2] - delta(1), [Y1, Y2] - delta(2), ...
-                        'Color', color, ...
-                        'LineStyle', style, ...
-                        'LineWidth', width);
-                elseif (d - tolerance <= r1 - r2)
-                    center = deal([xx1 yy1] + unitTangent * r1);
-                    theta = pi/2;
-                    makeTransformedLine(vX, vY, center, theta, 3 * r1);
-                else
-                    D = min(realmax, d * r1/(r1-r2));
-                    center = deal([xx1 yy1] + unitTangent * D);
-                    theta = asin((r1-r2)/d);
-                    makeTransformedLine(vX, vY, center, theta, 3 * D);
-                    makeTransformedLine(vX, vY, center, -theta, 3 * D);
-                end
+        end
+        
+        % Internal Common Tangents
+        if (centerDist + tolerance >= r(1) + r(2))
+            if (centerDist - tolerance <= r(1) + r(2))
+                center = centers(1, :) + unitTangent * r(1);
+                theta = pi/2;
+                makeTransformedLine(ctrCtr, center, theta, 3 * r(1));
+            else
+                D = min(realmax, centerDist * r(1)/(r(1)+r(2)));
+                center = centers(1, :) + unitTangent * D;
+                theta = asin((r(1)+r(2))/centerDist);
+                makeTransformedLine(ctrCtr, center, theta, 3 * D);
+                makeTransformedLine(ctrCtr, center, -theta, 3 * D);
             end
         end
     end
- 
-    function makeTransformedLine(vX, vY, center, theta, length)
-        oldLength = norm([vX(2)-vX(1), vY(2)-vY(1)]);
-        scale = min(realmax, length / oldLength);
-        lineCenter = [mean(vX), mean(vY)];
+
+    function makeTransformedLine(dirVector, center, theta, len)
+        oldLen = norm(dirVector);
+        scale = min(realmax, len / oldLen);
+        lineCenter = dirVector / 2;
         
         ht = hgtransform;
-        line(vX, vY, 'Parent', ht, ...
+        line([0 dirVector(1)], [0 dirVector(2)], ...
+            'Parent', ht, ...
             'Color', color, ...
             'LineStyle', style, ...
             'LineWidth', width);
